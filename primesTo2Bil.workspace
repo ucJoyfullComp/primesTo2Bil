@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<CodeLite_Workspace Name="primesTo2Bil" Database="">
+<CodeLite_Workspace Name="primesTo2Bil" Database="" Version="10.0.0">
   <Project Name="primesTo2Bil" Path="primesTo2Bil.project" Active="Yes"/>
   <BuildMatrix>
-    <WorkspaceConfiguration Name="Debug" Selected="yes">
+    <WorkspaceConfiguration Name="Debug" Selected="no">
       <Environment/>
       <Project Name="primesTo2Bil" ConfigName="Debug"/>
     </WorkspaceConfiguration>
-    <WorkspaceConfiguration Name="Release" Selected="no">
+    <WorkspaceConfiguration Name="Release" Selected="yes">
       <Environment/>
       <Project Name="primesTo2Bil" ConfigName="Release"/>
     </WorkspaceConfiguration>
