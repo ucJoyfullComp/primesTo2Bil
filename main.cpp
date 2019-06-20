@@ -12,12 +12,12 @@
 // This code is in the public domain.
 #include <algorithm>
 #include <chrono>
-#include <iostream>
 #include <mutex>
 #include <sched.h>
 #include <thread>
 #include <vector>
 
+#include <iostream>
 #include <fstream>
 #include <string>
 #include <climits>
@@ -32,12 +32,11 @@ using namespace std;
 #define BITS_IN_ULL ((__CHAR_BIT__)*(__SIZEOF_LONG_LONG__))
 #define MAX_NUM_SZ (MAX_NUM/BITS_IN_ULL)
 
-unsigned long long int ints[MAX_NUM_SZ];
 long int lastprime2Bil_idx;
 unsigned long long int mask_sieve;
 
 #define __PRECOMPILED_PRIMES__
-#define MULTIPLE_THREAD
+//#define MULTIPLE_THREAD
 
 #ifdef __PRECOMPILED_PRIMES__
 unsigned long long int base_primes[4648] = {
@@ -60,91 +59,414 @@ unsigned long long int base_primes[5000];
 #define NUM_PRIMES_TO_MASKTAB (12)
 #define OFFSET_MASKTAB (64)
 
-void sieve_optimized(long int startd, long int endd)
+void sieve_optimized1()
 {
-    long int prime_idx;
-    unsigned long long int primes[5000];
-    unsigned long long int bit[64] = {
-        1ULL<<0 ,1ULL<<1 ,1ULL<<2 ,1ULL<<3 ,1ULL<<4 ,1ULL<<5 ,1ULL<<6 ,1ULL<<7 ,
-        1ULL<<8 ,1ULL<<9 ,1ULL<<10,1ULL<<11,1ULL<<12,1ULL<<13,1ULL<<14,1ULL<<15,
-        1ULL<<16,1ULL<<17,1ULL<<18,1ULL<<19,1ULL<<20,1ULL<<21,1ULL<<22,1ULL<<23,
-        1ULL<<24,1ULL<<25,1ULL<<26,1ULL<<27,1ULL<<28,1ULL<<29,1ULL<<30,1ULL<<31,
-        1ULL<<32,1ULL<<33,1ULL<<34,1ULL<<35,1ULL<<36,1ULL<<37,1ULL<<38,1ULL<<39,
-        1ULL<<40,1ULL<<41,1ULL<<42,1ULL<<43,1ULL<<44,1ULL<<45,1ULL<<46,1ULL<<47,
-        1ULL<<48,1ULL<<49,1ULL<<50,1ULL<<51,1ULL<<52,1ULL<<53,1ULL<<54,1ULL<<55,
-        1ULL<<56,1ULL<<57,1ULL<<58,1ULL<<59,1ULL<<60,1ULL<<61,1ULL<<62,1ULL<<63,
-    };
-    unsigned long long int mask_primes[NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB];
+    cout << "Thread id: " << std::this_thread::get_id() << std::endl;
     
+    unsigned int startd = 0;
+    unsigned int sized = MAX_NUM_SZ/4;
+
+    unsigned long int prime_idx;
+    unsigned long int *primes = new unsigned long int[5000];
+    unsigned long long int *bit = new unsigned long long int[64];
+    unsigned long long int *mask_primes = new unsigned long long int[NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB];
+    unsigned long long int *ints = new unsigned long long int[sized];
+
+    for (int idx=0; idx<BITS_IN_ULL; idx++) {
+        bit[idx] = ~(1ULL<<idx);
+    }
+
     // STEP 1: copying primes table to local copy
     for (int idx=0; idx<lastprime2Bil_idx; idx++)
         primes[idx] = base_primes[idx];
     for (int idx=lastprime2Bil_idx; idx<5000; idx++)
         primes[idx] = 0;
+
+    for (unsigned long int idx=0; idx < sized; idx++) 
+        ints[idx] = 0xFFFFFFFFFFFFFFFFULL;
+    if (startd==0) ints[0] &= ~0x3ULL;
     
     // STEP 2: generating mask table for optimization of the sieve.
     // this is an abberation since 64 (number of bits in long long int) is divisible by
     // the prime 2
-    mask_primes[0]=~(
-      1ULL<<0 |1ULL<<2 |1ULL<<4 |1ULL<<6 |1ULL<<8 |1ULL<<10|1ULL<<12|1ULL<<14|
-      1ULL<<16|1ULL<<18|1ULL<<20|1ULL<<22|1ULL<<24|1ULL<<26|1ULL<<28|1ULL<<30|
-      1ULL<<32|1ULL<<34|1ULL<<36|1ULL<<38|1ULL<<40|1ULL<<42|1ULL<<44|1ULL<<46|
-      1ULL<<48|1ULL<<50|1ULL<<52|1ULL<<54|1ULL<<56|1ULL<<58|1ULL<<60|1ULL<<62);
+    for (prime_idx=0; prime_idx<NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB; prime_idx++)
+        mask_primes[prime_idx] = 0ULL;
+    
+    for (prime_idx=0; prime_idx<BITS_IN_ULL; prime_idx+=2)
+      mask_primes[0] |= 1ULL<<prime_idx;
+    mask_primes[0]=~mask_primes[0];
     
     for (prime_idx=1; prime_idx<NUM_PRIMES_TO_MASKTAB; prime_idx++) {
-        unsigned long long int prime=primes[prime_idx];
-        for (long int idx=0; idx<prime; idx++)
-            mask_primes[prime_idx*OFFSET_MASKTAB+idx] = ~0ULL;
-        for (long int num=0; num < prime*BITS_IN_ULL; num+=prime) {
-            long int idx = num / BITS_IN_ULL;
-            long int offset = num % BITS_IN_ULL;
-            mask_primes[prime_idx*OFFSET_MASKTAB+idx] &= ~(1ULL<<offset);
+        unsigned long int prime=primes[prime_idx];
+        for (unsigned long int num=0; num < prime*BITS_IN_ULL; num+=prime) {
+            unsigned long int idx = num / BITS_IN_ULL;
+            unsigned long int offset = num % BITS_IN_ULL;
+            mask_primes[prime_idx*OFFSET_MASKTAB+idx] |= 1ULL<<offset;
         }
+        for (unsigned long int idx=0; idx<prime; idx++)
+            mask_primes[prime_idx*OFFSET_MASKTAB+idx] = ~mask_primes[prime_idx*OFFSET_MASKTAB+idx];
     }
-    
-    // sieve for prime 2
+
     long int idx;
-    for (idx=startd; idx<endd; idx++) {
+
+    // sieve for prime 2
+    for (idx=0; idx<sized; idx++) {
         ints[idx] &= mask_primes[0];
     }
-    if (startd==0) ints[0] |= 1ULL<<2; // set 2 as a prime number
-    
+    ints[0] |= 1ULL<<2; // set 2 as a prime number
+
     for (prime_idx=1; prime_idx<NUM_PRIMES_TO_MASKTAB; prime_idx++) {
         long int idx;
-        long int offset;
-        unsigned long long int prime, primem1;
+        unsigned long int offset;
+        unsigned long int prime, primem1;
         
         // these are the most important optimizations
         // sieve for prime
         prime = primes[prime_idx];
         primem1 = prime-1;
-        for (idx=((startd+primem1)/prime)*prime-1; idx<endd; idx+=prime) {
+        for (idx=primem1; idx<sized; idx+=prime) {
             for (long int idx_idx=primem1; idx_idx>=0; idx_idx--) {
                 ints[idx-idx_idx] &= mask_primes[prime_idx*OFFSET_MASKTAB+primem1-idx_idx];
             }
         }
-        offset = (idx-endd);
+        offset = (idx-sized);
         if (offset != primem1) {
             for (long int idx_idx=primem1-offset; idx_idx>0; idx_idx--) {
                 ints[idx-idx_idx] &= mask_primes[prime_idx*OFFSET_MASKTAB+offset-idx_idx];
             }
         }
-        if (startd==0) ints[0] |= 1ULL<<prime; // set prime as a prime number
+        ints[0] |= 1ULL<<prime; // set prime as a prime number
     }
-    
-    
+     
     for (idx = NUM_PRIMES_TO_MASKTAB; idx <= lastprime2Bil_idx; idx++) {
-        unsigned long long int pr = base_primes[idx];
-        for (unsigned long long int num=2*pr; num<MAX_NUM; num+=pr) {
+        unsigned long long int pr = primes[idx];
+        for (unsigned long long int num=2*pr; num<MAX_NUM/4; num+=pr) {
             register int ints_idx = num>>6;
             register int bit_idx = num&63;
             ints[ints_idx] &= bit[bit_idx];
         }
     }
+    
+    std::ofstream fout("primesFr0To500M.txt");
+    for (long int num=0; num<MAX_NUM/4; num++) {
+        long int idx = num>>6;
+        if ((~bit[num&63]) & ints[idx]) 
+            fout << num << endl;
+    }
+    
+    delete[] primes;
+    delete[] bit;
+    delete[] mask_primes;
+    delete[] ints;
+}
+
+void sieve_optimized2()
+{
+    cout << "Thread id: " << std::this_thread::get_id() << std::endl;
+    
+    unsigned int startd = MAX_NUM_SZ/4;
+    unsigned int sized = MAX_NUM_SZ/4;
+
+    unsigned long int prime_idx;
+    unsigned long int *primes = new unsigned long int[5000];
+    unsigned long long int *bit = new unsigned long long int[64];
+    unsigned long long int *mask_primes = new unsigned long long int[NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB];
+    unsigned long long int *ints = new unsigned long long int[sized];
+
+    for (int idx=0; idx<BITS_IN_ULL; idx++) {
+        bit[idx] = ~(1ULL<<idx);
+    }
+
+    // STEP 1: copying primes table to local copy
+    for (int idx=0; idx<lastprime2Bil_idx; idx++)
+        primes[idx] = base_primes[idx];
+    for (int idx=lastprime2Bil_idx; idx<5000; idx++)
+        primes[idx] = 0;
+
+    for (unsigned long int idx=0; idx < sized; idx++) 
+        ints[idx] = 0xFFFFFFFFFFFFFFFFULL;
+    if (startd==0) ints[0] &= ~0x3ULL;
+    
+    // STEP 2: generating mask table for optimization of the sieve.
+    // this is an abberation since 64 (number of bits in long long int) is divisible by
+    // the prime 2
+    for (prime_idx=0; prime_idx<NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB; prime_idx++)
+        mask_primes[prime_idx] = 0ULL;
+    
+    for (prime_idx=0; prime_idx<BITS_IN_ULL; prime_idx+=2)
+      mask_primes[0] |= 1ULL<<prime_idx;
+    mask_primes[0]=~mask_primes[0];
+    
+    for (prime_idx=1; prime_idx<NUM_PRIMES_TO_MASKTAB; prime_idx++) {
+        unsigned long int prime=primes[prime_idx];
+        for (unsigned long int num=0; num < prime*BITS_IN_ULL; num+=prime) {
+            unsigned long int idx = num / BITS_IN_ULL;
+            unsigned long int offset = num % BITS_IN_ULL;
+            mask_primes[prime_idx*OFFSET_MASKTAB+idx] |= 1ULL<<offset;
+        }
+        for (unsigned long int idx=0; idx<prime; idx++)
+            mask_primes[prime_idx*OFFSET_MASKTAB+idx] = ~mask_primes[prime_idx*OFFSET_MASKTAB+idx];
+    }
+
+    long int idx;
+
+    // sieve for prime 2
+    for (idx=0; idx<sized; idx++) {
+        ints[idx] &= mask_primes[0];
+    }
+    ints[0] |= 1ULL<<2; // set 2 as a prime number
+
+    for (prime_idx=1; prime_idx<NUM_PRIMES_TO_MASKTAB; prime_idx++) {
+        long int idx;
+        unsigned long int offset;
+        unsigned long int prime, primem1;
+        
+        // these are the most important optimizations
+        // sieve for prime
+        prime = primes[prime_idx];
+        primem1 = prime-1;
+        for (idx=primem1; idx<sized; idx+=prime) {
+            for (long int idx_idx=primem1; idx_idx>=0; idx_idx--) {
+                ints[idx-idx_idx] &= mask_primes[prime_idx*OFFSET_MASKTAB+primem1-idx_idx];
+            }
+        }
+        offset = (idx-sized);
+        if (offset != primem1) {
+            for (long int idx_idx=primem1-offset; idx_idx>0; idx_idx--) {
+                ints[idx-idx_idx] &= mask_primes[prime_idx*OFFSET_MASKTAB+offset-idx_idx];
+            }
+        }
+        ints[0] |= 1ULL<<prime; // set prime as a prime number
+    }
+     
+    for (idx = NUM_PRIMES_TO_MASKTAB; idx <= lastprime2Bil_idx; idx++) {
+        unsigned long long int pr = primes[idx];
+        for (unsigned long long int num=((MAX_NUM/4+pr-1)/pr)*pr; num<MAX_NUM/2; num+=pr) {
+            register int ints_idx = num>>6;
+            register int bit_idx = num&63;
+            ints[ints_idx-MAX_NUM_SZ/4] &= bit[bit_idx];
+        }
+    }
+    
+    std::ofstream fout("primesFr500MTo1000M.txt");
+    for (long int num=0; num<MAX_NUM/4; num++) {
+        long int idx = num>>6;
+        if ((~bit[num&63]) & ints[idx]) 
+            fout << num+MAX_NUM/4 << endl;
+    }    
+    
+    delete[] primes;
+    delete[] bit;
+    delete[] mask_primes;
+    delete[] ints;
+}
+
+void sieve_optimized3()
+{
+    cout << "Thread id: " << std::this_thread::get_id() << std::endl;
+    
+    unsigned int startd = MAX_NUM_SZ/2;
+    unsigned int sized = MAX_NUM_SZ/4;
+
+    unsigned long int prime_idx;
+    unsigned long int *primes = new unsigned long int[5000];
+    unsigned long long int *bit = new unsigned long long int[64];
+    unsigned long long int *mask_primes = new unsigned long long int[NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB];
+    unsigned long long int *ints = new unsigned long long int[sized];
+
+    for (int idx=0; idx<BITS_IN_ULL; idx++) {
+        bit[idx] = ~(1ULL<<idx);
+    }
+
+    // STEP 1: copying primes table to local copy
+    for (int idx=0; idx<lastprime2Bil_idx; idx++)
+        primes[idx] = primes[idx];
+    for (int idx=lastprime2Bil_idx; idx<5000; idx++)
+        primes[idx] = 0;
+
+    for (unsigned long int idx=0; idx < sized; idx++) 
+        ints[idx] = 0xFFFFFFFFFFFFFFFFULL;
+    if (startd==0) ints[0] &= ~0x3ULL;
+    
+    // STEP 2: generating mask table for optimization of the sieve.
+    // this is an abberation since 64 (number of bits in long long int) is divisible by
+    // the prime 2
+    for (prime_idx=0; prime_idx<NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB; prime_idx++)
+        mask_primes[prime_idx] = 0ULL;
+    
+    for (prime_idx=0; prime_idx<BITS_IN_ULL; prime_idx+=2)
+      mask_primes[0] |= 1ULL<<prime_idx;
+    mask_primes[0]=~mask_primes[0];
+    
+    for (prime_idx=1; prime_idx<NUM_PRIMES_TO_MASKTAB; prime_idx++) {
+        unsigned long int prime=primes[prime_idx];
+        for (unsigned long int num=0; num < prime*BITS_IN_ULL; num+=prime) {
+            unsigned long int idx = num / BITS_IN_ULL;
+            unsigned long int offset = num % BITS_IN_ULL;
+            mask_primes[prime_idx*OFFSET_MASKTAB+idx] |= 1ULL<<offset;
+        }
+        for (unsigned long int idx=0; idx<prime; idx++)
+            mask_primes[prime_idx*OFFSET_MASKTAB+idx] = ~mask_primes[prime_idx*OFFSET_MASKTAB+idx];
+    }
+
+    long int idx;
+
+    // sieve for prime 2
+    for (idx=0; idx<sized; idx++) {
+        ints[idx] &= mask_primes[0];
+    }
+    ints[0] |= 1ULL<<2; // set 2 as a prime number
+
+    for (prime_idx=1; prime_idx<NUM_PRIMES_TO_MASKTAB; prime_idx++) {
+        long int idx;
+        unsigned long int offset;
+        unsigned long int prime, primem1;
+        
+        // these are the most important optimizations
+        // sieve for prime
+        prime = primes[prime_idx];
+        primem1 = prime-1;
+        for (idx=primem1; idx<sized; idx+=prime) {
+            for (long int idx_idx=primem1; idx_idx>=0; idx_idx--) {
+                ints[idx-idx_idx] &= mask_primes[prime_idx*OFFSET_MASKTAB+primem1-idx_idx];
+            }
+        }
+        offset = (idx-sized);
+        if (offset != primem1) {
+            for (long int idx_idx=primem1-offset; idx_idx>0; idx_idx--) {
+                ints[idx-idx_idx] &= mask_primes[prime_idx*OFFSET_MASKTAB+offset-idx_idx];
+            }
+        }
+        ints[0] |= 1ULL<<prime; // set prime as a prime number
+    }
+     
+    for (idx = NUM_PRIMES_TO_MASKTAB; idx <= lastprime2Bil_idx; idx++) {
+        unsigned long long int pr = primes[idx];
+        for (unsigned long long int num=((MAX_NUM/2+pr-1)/pr)*pr; num<3*MAX_NUM/4; num+=pr) {
+            register int ints_idx = num>>6;
+            register int bit_idx = num&63;
+            ints[ints_idx-MAX_NUM_SZ/2] &= bit[bit_idx];
+        }
+    }
+    
+    std::ofstream fout("primesFr1000MTo1500M.txt");
+    for (long int num=0; num<MAX_NUM/4; num++) {
+        long int idx = num>>6;
+        if ((~bit[num&63]) & ints[idx]) 
+            fout << num+MAX_NUM/2 << endl;
+    }    
+    
+    delete[] primes;
+    delete[] bit;
+    delete[] mask_primes;
+    delete[] ints;
+}
+
+void sieve_optimized4()
+{
+    cout << "Thread id: " << std::this_thread::get_id() << std::endl;
+    
+    unsigned int startd = 3*MAX_NUM_SZ/4;
+    unsigned int sized = MAX_NUM_SZ/4;
+
+    unsigned long int prime_idx;
+    unsigned long int *primes = new unsigned long int[5000];
+    unsigned long long int *bit = new unsigned long long int[64];
+    unsigned long long int *mask_primes = new unsigned long long int[NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB];
+    unsigned long long int *ints = new unsigned long long int[sized];
+
+    for (int idx=0; idx<BITS_IN_ULL; idx++) {
+        bit[idx] = ~(1ULL<<idx);
+    }
+
+    // STEP 1: copying primes table to local copy
+    for (int idx=0; idx<lastprime2Bil_idx; idx++)
+        primes[idx] = base_primes[idx];
+    for (int idx=lastprime2Bil_idx; idx<5000; idx++)
+        primes[idx] = 0;
+
+    for (unsigned long int idx=0; idx < sized; idx++) 
+        ints[idx] = 0xFFFFFFFFFFFFFFFFULL;
+    if (startd==0) ints[0] &= ~0x3ULL;
+    
+    // STEP 2: generating mask table for optimization of the sieve.
+    // this is an abberation since 64 (number of bits in long long int) is divisible by
+    // the prime 2
+    for (prime_idx=0; prime_idx<NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB; prime_idx++)
+        mask_primes[prime_idx] = 0ULL;
+    
+    for (prime_idx=0; prime_idx<BITS_IN_ULL; prime_idx+=2)
+      mask_primes[0] |= 1ULL<<prime_idx;
+    mask_primes[0]=~mask_primes[0];
+    
+    for (prime_idx=1; prime_idx<NUM_PRIMES_TO_MASKTAB; prime_idx++) {
+        unsigned long int prime=primes[prime_idx];
+        for (unsigned long int num=0; num < prime*BITS_IN_ULL; num+=prime) {
+            unsigned long int idx = num / BITS_IN_ULL;
+            unsigned long int offset = num % BITS_IN_ULL;
+            mask_primes[prime_idx*OFFSET_MASKTAB+idx] |= 1ULL<<offset;
+        }
+        for (unsigned long int idx=0; idx<prime; idx++)
+            mask_primes[prime_idx*OFFSET_MASKTAB+idx] = ~mask_primes[prime_idx*OFFSET_MASKTAB+idx];
+    }
+
+    long int idx;
+
+    // sieve for prime 2
+    for (idx=0; idx<sized; idx++) {
+        ints[idx] &= mask_primes[0];
+    }
+    ints[0] |= 1ULL<<2; // set 2 as a prime number
+
+    for (prime_idx=1; prime_idx<NUM_PRIMES_TO_MASKTAB; prime_idx++) {
+        long int idx;
+        unsigned long int offset;
+        unsigned long int prime, primem1;
+        
+        // these are the most important optimizations
+        // sieve for prime
+        prime = primes[prime_idx];
+        primem1 = prime-1;
+        for (idx=primem1; idx<sized; idx+=prime) {
+            for (long int idx_idx=primem1; idx_idx>=0; idx_idx--) {
+                ints[idx-idx_idx] &= mask_primes[prime_idx*OFFSET_MASKTAB+primem1-idx_idx];
+            }
+        }
+        offset = (idx-sized);
+        if (offset != primem1) {
+            for (long int idx_idx=primem1-offset; idx_idx>0; idx_idx--) {
+                ints[idx-idx_idx] &= mask_primes[prime_idx*OFFSET_MASKTAB+offset-idx_idx];
+            }
+        }
+        ints[0] |= 1ULL<<prime; // set prime as a prime number
+    }
+     
+    for (idx = NUM_PRIMES_TO_MASKTAB; idx <= lastprime2Bil_idx; idx++) {
+        unsigned long long int pr = primes[idx];
+        for (unsigned long long int num=((3*MAX_NUM/4+pr-1)/pr)*pr; num<MAX_NUM; num+=pr) {
+            register int ints_idx = num>>6;
+            register int bit_idx = num&63;
+            ints[ints_idx-3*MAX_NUM_SZ/4] &= bit[bit_idx];
+        }
+    }
+    
+    std::ofstream fout("primesFr1500MTo2000M.txt");
+    for (long int num=0; num<MAX_NUM/4; num++) {
+        long int idx = num>>6;
+        if ((~bit[num&63]) & ints[idx]) 
+            fout << num+3*MAX_NUM/4 << endl;
+    }    
+    
+    delete[] primes;
+    delete[] bit;
+    delete[] mask_primes;
+    delete[] ints;
 }
 #endif
 
 #ifndef MULTIPLE_THREAD
+unsigned long long int ints[MAX_NUM_SZ];
+
 unsigned long long int bit[64] = {
     1ULL<<0 ,1ULL<<1 ,1ULL<<2 ,1ULL<<3 ,1ULL<<4 ,1ULL<<5 ,1ULL<<6 ,1ULL<<7 ,
     1ULL<<8 ,1ULL<<9 ,1ULL<<10,1ULL<<11,1ULL<<12,1ULL<<13,1ULL<<14,1ULL<<15,
@@ -461,7 +783,7 @@ int main(int argc, char **argv)
     init();
     sieve_erat();
 #ifdef DEBUG
-    for (long int num=0; num<10000000; num++) {
+    for (long int num=0; num<2000000000; num++) {
         long int idx = num>>6;
         if ((~bit[num&63]) & ints[idx]) 
             cout << num << endl;
@@ -472,10 +794,6 @@ int main(int argc, char **argv)
 #else
 void init(void)
 {
-    for (unsigned long int idx=0; idx < MAX_NUM_SZ; idx++) 
-        ints[idx] = 0xFFFFFFFFFFFFFFFFULL;
-    ints[0] &= ~0x3ULL;
-    
 #if !defined(__PRECOMPILED_PRIMES__)
     vector<unsigned long int> vPrimes;
     unsigned long int max_prime = sqrt(MAX_NUM);
@@ -509,18 +827,11 @@ int main(int argc, const char** argv) {
     // A mutex ensures orderly access to std::cout from multiple threads.
     std::mutex iomutex;
     std::vector<std::thread> threads(num_cpus);
-    for(unsigned i = 0; i < num_cpus; ++i) {
-        threads[i] = std::thread([&iomutex, i] {
-            {
-                // Use a lexical scope and lock_guard to safely lock the mutex only for
-                // the duration of std::cout usage.
-                std::lock_guard<std::mutex> iolock(iomutex);
-                std::cout << "Thread #" << i << " is running\n";
-            }
 
-            sieve_optimized(i*MAX_NUM_SZ/4, ((i+1)*MAX_NUM_SZ/4 > MAX_NUM_SZ)?MAX_NUM_SZ:(i+1)*MAX_NUM_SZ/4);
-        });
-    }
+    threads[0] = std::thread(sieve_optimized1);
+    threads[1] = std::thread(sieve_optimized2);
+//    threads[2] = std::thread(sieve_optimized3);
+//    threads[3] = std::thread(sieve_optimized4);
 
     for(auto& t : threads) {
         t.join();
