@@ -343,7 +343,10 @@ void init(void)
 
 //
 int main(int argc, const char** argv) {
+    auto start = std::chrono::system_clock::now();
+#ifndef DEBUG
     unsigned num_cpus = std::thread::hardware_concurrency();
+#endif
     
     num_cpus = 4;
     
@@ -365,6 +368,12 @@ int main(int argc, const char** argv) {
             t.join();
         }
     }
+#ifndef DEBUG
+    auto end = std::chrono::system_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    
+    std::cout << "Calculation time: " << elapsed.count() << " mili-seconds" << endl;
+#endif
     return 0;
 }
 #endif
