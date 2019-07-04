@@ -21,6 +21,7 @@
 #include <fstream>
 #include <string>
 #include <sstream>
+#include <cstdint>
 #include <climits>
 #include <cfloat>
 #include <cfenv>
@@ -30,13 +31,25 @@
 
 using namespace std;
 
+#define __128BIT_DATA
+
+#ifdef __128BIT_DATA
+typedef __int128 MYINT;
+typedef unsigned __int128 MYUINT;
+#define BITS_IN_MYUINT ((__CHAR_BIT__)*(__SIZEOF_INT128__))
+#define ULL_SHR (7)
+#else
+typedef long long int MYINT;
+typedef unsigned long long int MYUINT;
+#define BITS_IN_MYUINT ((__CHAR_BIT__)*(__SIZEOF_LONG_LONG__))
+#define ULL_SHR (6)
+#endif
+
 #define MAX_NUM (2000000000LL)
-#define PAGES (4)
-#define MAX_PAGE (MAX_NUM/PAGES)
-#define BITS_IN_ULL ((__CHAR_BIT__)*(__SIZEOF_LONG_LONG__))
-#define MAX_NUM_SZ (MAX_NUM/BITS_IN_ULL)
+#define ULL_MASK (BITS_IN_MYUINT-1)
+#define MAX_NUM_SZ (MAX_NUM/BITS_IN_MYUINT)
 #define NUM_PRIMES_TO_MASKTAB (12)
-#define OFFSET_MASKTAB (64)
+#define OFFSET_MASKTAB (BITS_IN_MYUINT)
 
 
 long int lastprime2Bil_idx;
@@ -44,10 +57,10 @@ long int lastprime2Bil_idx;
 #define MULTIPLE_THREAD
 
 #define BASE_PRIMES_SZ (5000)
-unsigned long long int base_primes[BASE_PRIMES_SZ];
-unsigned long long int base_mask_primes[NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB];
+MYUINT base_primes[BASE_PRIMES_SZ];
+MYUINT base_mask_primes[NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB];
 
-void printOutAll(unsigned long long int *ints)
+void printOutAll(MYUINT *ints)
 {
     stringstream fname;
     
@@ -56,7 +69,7 @@ void printOutAll(unsigned long long int *ints)
     ofstream fout(fname.str());
     
     for (unsigned long int idx=0; idx<MAX_NUM_SZ; idx++)
-        fout << bitset<64>(ints[idx]) << endl;
+        fout << bitset<BITS_IN_MYUINT>(ints[idx]) << endl;
     
     fout.close();
 }
@@ -99,20 +112,24 @@ void sieve_optimized1(unsigned int startd, unsigned int sized)
 
     unsigned long int prime_idx;
     unsigned long int *primes = new unsigned long int[BASE_PRIMES_SZ];
-    unsigned long long int *bit = new unsigned long long int[BITS_IN_ULL];
-    unsigned long long int *mask_primes = new unsigned long long int[NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB];
-    unsigned long long int *ints = new unsigned long long int[sized];
+    MYUINT *bit = new MYUINT[BITS_IN_MYUINT];
+    MYUINT *mask_primes = new MYUINT[NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB];
+    MYUINT *ints = new MYUINT[sized];
 
-    for (int idx=0; idx<BITS_IN_ULL; idx++) {
-        bit[idx] = ~(1ULL<<idx);
+    for (int idx=0; idx<BITS_IN_MYUINT; idx++) {
+        bit[idx] = ~(((MYUINT)1ULL)<<idx);
     }
 
     // STEP 1: copying primes table to local copy
     std::copy(&base_primes[0],&base_primes[BASE_PRIMES_SZ],primes);
 
+#ifdef __128BIT_DATA
+    std::fill(&ints[0],&ints[sized],((MYUINT)0xAAAAAAAAAAAAAAAAULL<<64)|(MYUINT)0xAAAAAAAAAAAAAAAAULL);
+#else
     std::fill(&ints[0],&ints[sized],0xAAAAAAAAAAAAAAAAULL);
-    ints[0] &= ~0x3ULL;
-    ints[0] |=  0x4ULL;
+#endif
+    ints[0] &= ~((MYUINT)0x3ULL);
+    ints[0] |=  ((MYUINT)0x4ULL);
     
     // STEP 2: generating mask table for optimization of the sieve.
     std::copy(&base_mask_primes[0],&base_mask_primes[NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB],mask_primes);
@@ -131,15 +148,15 @@ void sieve_optimized1(unsigned int startd, unsigned int sized)
             ints[ints_idx] &= mask_primes[prime_idx*OFFSET_MASKTAB+mask_idx];
             ++mask_idx %= prime;
         }
-        ints[0] |= 1ULL<<prime; // set prime as a prime number
+        ints[0] |= ((MYUINT)1ULL) << prime; // set prime as a prime number
     }
      
     for (idx = NUM_PRIMES_TO_MASKTAB; idx <= lastprime2Bil_idx; idx++) {
-        unsigned long long int prime = primes[idx];
-        unsigned long long int lastnum = sized*BITS_IN_ULL;
-        for (unsigned long long int num=2*prime; num<lastnum; num+=prime) {
-            register int ints_idx = num>>6;
-            register int bit_idx = num&63;
+        MYUINT prime = primes[idx];
+        MYUINT lastnum = sized*BITS_IN_MYUINT;
+        for (MYUINT num=2*prime; num<lastnum; num+=prime) {
+            int ints_idx = num >> ULL_SHR;
+            int bit_idx = num & ULL_MASK;
             ints[ints_idx] &= bit[bit_idx];
         }
     }
@@ -147,13 +164,13 @@ void sieve_optimized1(unsigned int startd, unsigned int sized)
 //    printOutAll(ints);
 #ifdef DEBUG
     std::stringstream fname;
-    fname << "primesFr" << startd*BITS_IN_ULL/1000000 << "MTo" << (startd+sized)*BITS_IN_ULL/1000000 << "M.txt";
+    fname << "primesFr" << startd*BITS_IN_MYUINT/1000000 << "MTo" << (startd+sized)*BITS_IN_MYUINT/1000000 << "M.txt";
     std::ofstream fout(fname.str());
-    unsigned long int sz = sized*BITS_IN_ULL;
+    unsigned long int sz = sized*BITS_IN_MYUINT;
     for (unsigned long int num=0; num<sz; num++) {
-        unsigned long int idx = num>>6;
-        if ((~bit[num&63]) & ints[idx]) 
-            fout << num+startd*BITS_IN_ULL << endl;
+        unsigned long int idx = num >> ULL_SHR;
+        if ((~bit[num & ULL_MASK]) & ints[idx]) 
+            fout << num+startd*BITS_IN_MYUINT << endl;
     }
 #endif
     
@@ -172,18 +189,22 @@ void sieve_optimized_other(unsigned int startd, unsigned int sized)
 
     unsigned long int prime_idx;
     unsigned long int *primes = new unsigned long int[BASE_PRIMES_SZ];
-    unsigned long long int *bit = new unsigned long long int[BITS_IN_ULL];
-    unsigned long long int *mask_primes = new unsigned long long int[NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB];
-    unsigned long long int *ints = new unsigned long long int[sized];
+    MYUINT *bit = new MYUINT[BITS_IN_MYUINT];
+    MYUINT *mask_primes = new MYUINT[NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB];
+    MYUINT *ints = new MYUINT[sized];
 
-    for (int idx=0; idx<BITS_IN_ULL; idx++) {
-        bit[idx] = ~(1ULL<<idx);
+    for (int idx=0; idx<BITS_IN_MYUINT; idx++) {
+        bit[idx] = ~(((MYUINT)1ULL)<<idx);
     }
 
     // STEP 1: copying primes table to local copy
     std::copy(&base_primes[0],&base_primes[BASE_PRIMES_SZ],primes);
 
+#ifdef __128BIT_DATA
+    std::fill(&ints[0],&ints[sized],((MYUINT)0xAAAAAAAAAAAAAAAAULL<<64)|(MYUINT)0xAAAAAAAAAAAAAAAAULL);
+#else
     std::fill(&ints[0],&ints[sized],0xAAAAAAAAAAAAAAAAULL);
+#endif
     
     // STEP 2: generating mask table for optimization of the sieve.
     std::copy(&base_mask_primes[0],&base_mask_primes[NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB],mask_primes);
@@ -206,24 +227,24 @@ void sieve_optimized_other(unsigned int startd, unsigned int sized)
     }
      
     for (idx = NUM_PRIMES_TO_MASKTAB; idx <= lastprime2Bil_idx; idx++) {
-        unsigned long long int prime = primes[idx];
-        unsigned long long int lastnum = (startd+sized)*BITS_IN_ULL;
-        for (unsigned long long int num=((startd*BITS_IN_ULL+prime-1)/prime)*prime; num<lastnum; num+=prime) {
-            register int ints_idx = num>>6;
-            register int bit_idx = num&63;
+        MYUINT prime = primes[idx];
+        MYUINT lastnum = (startd+sized)*BITS_IN_MYUINT;
+        for (MYUINT num=((startd*BITS_IN_MYUINT+prime-1)/prime)*prime; num<lastnum; num+=prime) {
+            register int ints_idx = num >> ULL_SHR;
+            register int bit_idx = num & ULL_MASK;
             ints[ints_idx-startd] &= bit[bit_idx];
         }
     }
     
 #ifdef DEBUG
     std::stringstream fname;
-    fname << "primesFr" << startd*BITS_IN_ULL/1000000 << "MTo" << (startd+sized)*BITS_IN_ULL/1000000 << "M.txt";
+    fname << "primesFr" << startd*BITS_IN_MYUINT/1000000 << "MTo" << (startd+sized)*BITS_IN_MYUINT/1000000 << "M.txt";
     std::ofstream fout(fname.str());
-    unsigned long int sz = sized*BITS_IN_ULL;
+    unsigned long int sz = sized*BITS_IN_MYUINT;
     for (unsigned long int num=0; num<sz; num++) {
-        unsigned long int idx = num>>6;
-        if ((~bit[num&63]) & ints[idx]) 
-            fout << num+startd*BITS_IN_ULL << endl;
+        unsigned long int idx = num >> ULL_SHR;
+        if ((~bit[num & ULL_MASK]) & ints[idx]) 
+            fout << num+startd*BITS_IN_MYUINT << endl;
     }
 #endif
     
@@ -236,15 +257,15 @@ void sieve_optimized_other(unsigned int startd, unsigned int sized)
 #endif
 
 #ifndef MULTIPLE_THREAD
-unsigned long long int ints[MAX_NUM_SZ];
-unsigned long long int bit[BITS_IN_ULL];
+MYUINT ints[MAX_NUM_SZ];
+MYUINT bit[BITS_IN_MYUINT];
 
 void init(void)
 {
     long int prime;
     
-    for (int idx=0; idx<BITS_IN_ULL; idx++) {
-        bit[idx] = ~(1ULL<<idx);
+    for (int idx=0; idx<BITS_IN_MYUINT; idx++) {
+        bit[idx] = ~(((MYUINT)1ULL)<<idx);
     }
         
     first_primes();
@@ -254,9 +275,9 @@ void init(void)
     // as it reduces the number of sieve loops considerably.
     {
         prime =2 ;
-        base_mask_primes[0] = ~0ULL;
-        for (long int num=0; num<BITS_IN_ULL; num+=prime) {
-            base_mask_primes[0] |= 1ULL<<num;
+        base_mask_primes[0] = ~((MYUINT)0ULL);
+        for (long int num=0; num<BITS_IN_MYUINT; num+=prime) {
+            base_mask_primes[0] |= ((MYUINT)1ULL) << num;
         }
         base_mask_primes[0] = ~base_mask_primes[0];
     }
@@ -264,23 +285,27 @@ void init(void)
     for (long int prime_idx=1; prime_idx<NUM_PRIMES_TO_MASKTAB; prime_idx++) {
         long int prime = base_primes[prime_idx];
         for (long int idx=0; idx<prime; idx++)
-            base_mask_primes[prime_idx*OFFSET_MASKTAB+idx] = ~0ULL;
-        for (long int num=0; num < prime*BITS_IN_ULL; num+=prime) {
-            long int idx = num / BITS_IN_ULL;
-            long int offset = num % BITS_IN_ULL;
-            base_mask_primes[prime_idx*OFFSET_MASKTAB+idx] &= ~(1ULL<<offset);
+            base_mask_primes[prime_idx*OFFSET_MASKTAB+idx] = ~((MYUINT)0ULL);
+        for (long int num=0; num < prime*BITS_IN_MYUINT; num+=prime) {
+            long int idx = num / BITS_IN_MYUINT;
+            long int offset = num % BITS_IN_MYUINT;
+            base_mask_primes[prime_idx*OFFSET_MASKTAB+idx] &= ~(((MYUINT)1ULL) << offset);
         }
     }
 
+#ifdef __128BIT_DATA
+    std::fill(&ints[0],&ints[MAX_NUM_SZ],((MYUINT)0xAAAAAAAAAAAAAAAAULL<<64)|(MYUINT)0xAAAAAAAAAAAAAAAAULL);
+#else
     std::fill(&ints[0],&ints[MAX_NUM_SZ],0xAAAAAAAAAAAAAAAAULL);
+#endif
 }
 
 void sieve_erat(void)
 {
-    ints[0] &= ~0x3ULL;
-    ints[0] |=  0x4ULL;
+    ints[0] &= ~((MYUINT)0x3ULL);
+    ints[0] |=  ((MYUINT)0x4ULL);
     // these are the most important optimizations
-    for (long long int prime_idx=1; prime_idx<NUM_PRIMES_TO_MASKTAB; prime_idx++) {
+    for (MYINT prime_idx=1; prime_idx<NUM_PRIMES_TO_MASKTAB; prime_idx++) {
         unsigned long int ints_idx, mask_idx;
         unsigned long int prime;
         
@@ -292,14 +317,14 @@ void sieve_erat(void)
             ints[ints_idx] &= base_mask_primes[prime_idx*OFFSET_MASKTAB+mask_idx++];
             mask_idx %= prime;
         }
-        ints[0] |= 1ULL<<prime; // set prime as a prime number
+        ints[0] |= ((MYUINT)1ULL) << prime; // set prime as a prime number
     }
     
-    for (long long int idx = NUM_PRIMES_TO_MASKTAB; idx <= lastprime2Bil_idx; idx++) {
-        unsigned long long int pr = base_primes[idx];
-        for (unsigned long long int num=2*pr; num<MAX_NUM; num+=pr) {
-            register int ints_idx = num>>6;
-            register int bit_idx = num&63;
+    for (MYINT idx = NUM_PRIMES_TO_MASKTAB; idx <= lastprime2Bil_idx; idx++) {
+        MYUINT pr = base_primes[idx];
+        for (MYUINT num=2*pr; num<MAX_NUM; num+=pr) {
+            register int ints_idx = num >> ULL_SHR;
+            register int bit_idx = num & ULL_MASK;
             ints[ints_idx] &= bit[bit_idx];
         }
     }
@@ -311,8 +336,8 @@ int main(int argc, char **argv)
     sieve_erat();
 #ifdef DEBUG
     for (long int num=0; num<2000000000; num++) {
-        long int idx = num>>6;
-        if ((~bit[num&63]) & ints[idx]) 
+        long int idx = num >> ULL_SHR;
+        if ((~bit[num & ULL_MASK) & ints[idx]) 
             cout << num << endl;
     }
 #endif
@@ -323,20 +348,24 @@ void init(void)
 {
     first_primes();
 
-    // this is an abberation since 64 (number of bits in long long int) is divisible by
+    // this is an abberation since 64 (number of bits in MYINT) is divisible by
     // the prime 2
+#ifdef __128BIT_DATA
+    std::fill(base_mask_primes,&base_mask_primes[NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB],((MYUINT)0xFFFFFFFFFFFFFFFFULL<<64)|(MYUINT)0xFFFFFFFFFFFFFFFFULL);
+#else
     std::fill(base_mask_primes,&base_mask_primes[NUM_PRIMES_TO_MASKTAB*OFFSET_MASKTAB],0xFFFFFFFFFFFFFFFFULL);
+#endif
     
-    for (unsigned long int prime_idx=0; prime_idx<BITS_IN_ULL; prime_idx+=2)
-      base_mask_primes[0] |= 1ULL<<prime_idx;
+    for (unsigned long int prime_idx=0; prime_idx<BITS_IN_MYUINT; prime_idx+=2)
+      base_mask_primes[0] |= ((MYUINT)1ULL) << prime_idx;
     base_mask_primes[0]=~base_mask_primes[0];
     
     for (unsigned long int prime_idx=1; prime_idx<NUM_PRIMES_TO_MASKTAB; prime_idx++) {
         unsigned long int prime=base_primes[prime_idx];
-        for (unsigned long int num=0; num < prime*BITS_IN_ULL; num+=prime) {
-            unsigned long int idx = num / BITS_IN_ULL;
-            unsigned long int offset = num % BITS_IN_ULL;
-            base_mask_primes[prime_idx*OFFSET_MASKTAB+idx] &= ~(1ULL<<offset);
+        for (unsigned long int num=0; num < prime*BITS_IN_MYUINT; num+=prime) {
+            unsigned long int idx = num / BITS_IN_MYUINT;
+            unsigned long int offset = num % BITS_IN_MYUINT;
+            base_mask_primes[prime_idx*OFFSET_MASKTAB+idx] &= ~(((MYUINT)1ULL) << offset);
         }
     }
 }
