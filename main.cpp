@@ -347,9 +347,7 @@ int main(int argc, const char** argv) {
 #ifndef DEBUG
     unsigned num_cpus = std::thread::hardware_concurrency();
 #endif
-    
-    num_cpus = 4;
-    
+
     std::cout << "Launching " << num_cpus << " threads\n";
 
     init();
