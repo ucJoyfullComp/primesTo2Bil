@@ -31,7 +31,7 @@
 
 using namespace std;
 
-#define __128BIT_DATA
+//#define __128BIT_DATA
 
 #ifdef __128BIT_DATA
 typedef __int128 MYINT;
@@ -228,11 +228,11 @@ void sieve_optimized_other(unsigned int startd, unsigned int sized)
      
     for (idx = NUM_PRIMES_TO_MASKTAB; idx <= lastprime2Bil_idx; idx++) {
         MYUINT prime = primes[idx];
-        MYUINT lastnum = (startd+sized)*BITS_IN_MYUINT;
-        for (MYUINT num=((startd*BITS_IN_MYUINT+prime-1)/prime)*prime; num<lastnum; num+=prime) {
-            register int ints_idx = num >> ULL_SHR;
-            register int bit_idx = num & ULL_MASK;
-            ints[ints_idx-startd] &= bit[bit_idx];
+        MYUINT lastnum = sized*BITS_IN_MYUINT;
+        for (MYUINT num=2*prime; num<lastnum; num+=prime) {
+            int ints_idx = num >> ULL_SHR;
+            int bit_idx = num & ULL_MASK;
+            ints[ints_idx] &= bit[bit_idx];
         }
     }
     
@@ -323,8 +323,8 @@ void sieve_erat(void)
     for (MYINT idx = NUM_PRIMES_TO_MASKTAB; idx <= lastprime2Bil_idx; idx++) {
         MYUINT pr = base_primes[idx];
         for (MYUINT num=2*pr; num<MAX_NUM; num+=pr) {
-            register int ints_idx = num >> ULL_SHR;
-            register int bit_idx = num & ULL_MASK;
+            int ints_idx = num >> ULL_SHR;
+            int bit_idx = num & ULL_MASK;
             ints[ints_idx] &= bit[bit_idx];
         }
     }
@@ -337,7 +337,7 @@ int main(int argc, char **argv)
 #ifdef DEBUG
     for (long int num=0; num<2000000000; num++) {
         long int idx = num >> ULL_SHR;
-        if ((~bit[num & ULL_MASK) & ints[idx]) 
+        if ((~bit[num & ULL_MASK]) & ints[idx]) 
             cout << num << endl;
     }
 #endif
@@ -373,9 +373,7 @@ void init(void)
 //
 int main(int argc, const char** argv) {
     auto start = std::chrono::system_clock::now();
-#ifndef DEBUG
     unsigned num_cpus = std::thread::hardware_concurrency();
-#endif
 
     std::cout << "Launching " << num_cpus << " threads\n";
 
