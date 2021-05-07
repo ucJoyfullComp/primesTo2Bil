@@ -55,6 +55,7 @@ typedef unsigned long long int MYUINT;
 long int lastprime2Bil_idx;
 
 #define MULTIPLE_THREAD
+#undef MULTIPLE_THREAD // currently there is a problem with multiple thread use only single thread.
 
 #define BASE_PRIMES_SZ (5000)
 MYUINT base_primes[BASE_PRIMES_SZ];
